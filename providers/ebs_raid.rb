@@ -395,8 +395,7 @@ def create_raid_disks(mount_point, mount_point_owner, mount_point_group, mount_p
           when "ext4"
             system("mke2fs -t #{filesystem} -F #{md_device}")
           else
-            #TODO fill in details on how to format other filesystems here
-            Chef::Log.info("Can't format filesystem #{filesystem}")
+            system("mkfs -t #{filesystem} #{md_device}")
         end
       end
     end
