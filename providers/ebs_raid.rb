@@ -128,10 +128,13 @@ def udev(cmd, log)
 end
 
 def update_initramfs()
-  execute "updating initramfs" do
-    Chef::Log.debug("updating initramfs to ensure RAID config persists reboots")
-    command "update-initramfs -u"
+  if node[:platform] == "ubuntu"
+    execute "updating initramfs" do
+      Chef::Log.debug("updating initramfs to ensure RAID config persists reboots")
+      command "update-initramfs -u"
+    end
   end
+
 end
 
 def manage_udev(action)
@@ -229,7 +232,7 @@ def mount_volumes(device_vol_map)
         Chef::Log.info("sleeping 10 seconds until EBS volumes have re-attached")
         sleep 10
         count += 1
-      end while !device_vol_map.all? {|dev_path| ::File.exists?(dev_path) }
+      end while !device_vol_map.all? {|dev_path, vol_id| ::File.exists?(dev_path) }
 
       # Accounting to see how often this code actually gets used.
       node.set[:aws][:raid][mount_point][:device_attach_delay] = count * 10
@@ -287,6 +290,9 @@ def mount_device(raid_dev, mount_point, mount_point_owner, mount_point_group, mo
 
       # the mountpoint must be determined dynamically, so I can't use the chef mount
       system("mount -t #{filesystem} -o #{filesystem_options} #{md_device} #{mount_point}")
+
+      # Add to fstab
+      system("echo #{md_device} #{mount_point} #{filesystem} #{filesystem_options} 0 0 >> /etc/fstab")
     end
   end
 end
@@ -377,6 +383,13 @@ def create_raid_disks(mount_point, mount_point_owner, mount_point_group, mount_p
     execute "creating raid device" do
       Chef::Log.info("creating raid device /dev/#{raid_dev} with raid devices #{devices_string}")
       command "mdadm --create /dev/#{raid_dev} --level=#{level} --raid-devices=#{devices.size} #{devices_string}"
+      notifies :run, "execute[save_config]"
+    end
+
+    execute "save_config" do
+      command "echo 'DEVICE /dev/hd*[0-9] /dev/sd*[0-9] /dev/xvd*' > /etc/mdadm.conf; mdadm --detail --scan >> /etc/mdadm.conf"
+      not_if { ::File.exists?("/etc/mdadm.conf") }
+      action :nothing
     end
 
     # NOTE: must be a better way.
